@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>PathSnap Technical Report</title>
+<style>
+@page { size: A4; margin: 16mm 15mm 18mm 15mm; }
+body { font-family: "Segoe UI", system-ui, sans-serif; font-size: 10pt; line-height: 1.45; color: #1d2430; }
+h1 { font-size: 20pt; margin: 0 0 4px; }
+h2 { font-size: 14pt; margin: 22px 0 8px; border-bottom: 2px solid #1565c0; padding-bottom: 3px; page-break-after: avoid; }
+h3 { font-size: 11.5pt; margin: 14px 0 5px; color: #1e3a8a; page-break-after: avoid; }
+h4 { font-size: 10.5pt; margin: 10px 0 4px; page-break-after: avoid; }
+p { margin: 4px 0 7px; }
+code { font-family: Consolas, monospace; font-size: 9pt; background: #f1f5f9; padding: 0 3px; }
+pre { font-family: Consolas, monospace; font-size: 8.5pt; background: #f1f5f9; padding: 8px; white-space: pre-wrap; page-break-inside: avoid; }
+table { border-collapse: collapse; width: 100%; margin: 6px 0 10px; font-size: 8.5pt; page-break-inside: avoid; }
+th, td { border: 1px solid #cbd5e1; padding: 3px 5px; text-align: left; vertical-align: top; }
+th { background: #e2e8f0; }
+td.n { text-align: right; }
+img { max-width: 100%; display: block; margin: 6px auto; page-break-inside: avoid; }
+figure { margin: 6px 0 12px; page-break-inside: avoid; }
+figcaption { font-size: 8.5pt; color: #475569; text-align: center; }
+.meta td { border: none; padding: 2px 6px; font-size: 10pt; }
+.pb { page-break-before: always; }
+.qa { margin: 4px 0 8px; }
+.qa b { color: #1e3a8a; }
+</style></head><body>
+
+<h1>PathSnap: Distributed Map-Matching &amp; Route Reconstruction</h1>
+<p>UE24CS352A Machine Learning · Technical Report · $today</p>
+<table class="meta">
+<tr><td><b>Team</b></td><td>5B AIML</td></tr>
+<tr><td><b>Members (SRN)</b></td><td>Prakhruti · Meha · Shranaya · Mohammed Muaz Iqubal</td></tr>
+<tr><td><b>Repository</b></td><td><a href="https://github.com/muaz-q/ML_HACKATHON_pathsnap_public_5B_AIML">https://github.com/muaz-q/ML_HACKATHON_pathsnap_public_5B_AIML</a></td></tr>
+</table>
+<p><b>Summary.</b> For each GPS fix we generate the 12 nearest directed road arcs as candidates and compute 23 location-independent features per (fix, candidate) pair. A classifier estimates P(candidate = reference arc), and an HMM decoded with Viterbi turns these into a connected route using shortest-path distances on the directed road graph. Ten models were compared with trip-grouped 5-fold CV. LightGBM was selected and tuned with Bayesian optimisation (Optuna TPE). On the 10 student-test trips the final system reaches <b>$hmm_top1_s</b> observation-level Top-1 accuracy (classifier only: $clf_top1_s) and route arc F1 <b>$hmm_f1_s</b> (classifier only: $clf_f1). It is deployed as a FastAPI service (Laptop 1) with a Leaflet UI (Laptop 2).</p>
+
+<h2>2. Dataset Understanding and Exploratory Data Analysis</h2>
+<p><i>Partitions: all EDA uses <b>train</b> (80 trips) and <b>student_test</b> (10 trips). Evaluator trips were not available and were never used.</i></p>
+<h3>2.1 How did we preprocess the data?</h3>
+<ol>
+<li><b>Loading and cleaning</b> (<code>pathsnap/data.py</code>): read the four headerless files per trip; drop non-finite track rows, sort by timestamp, drop duplicate timestamps. The checks found 0 NaN rows, 0 invalid coordinates and 0 non-increasing timestamps in both partitions, but the steps are kept for unseen data.</li>
+<li><b>Projection:</b> lon/lat are angular and the trips span every continent, so each trip is projected into a local azimuthal-equidistant frame (metres) centred on its GPS centroid (pyproj, <code>always_xy</code> because the files are lon-first). Distortion is &lt;0.1 % at trip scale.</li>
+<li><b>Per-fix reference labels</b> (<code>pathsnap/labels.py</code>): <code>.route</code> is an untimed arc sequence, not one row per fix. Each fix is assigned a route position by a monotonic dynamic-programming alignment minimising total point-to-arc distance, with D[t,j] = c[t,j] + min<sub>j'≤j</sub> D[t−1,j'].</li>
+<li><b>Reliability filter:</b> fixes farther than 60 m from their aligned arc ($tr_gt60 train fixes, $tr_gt60_pct; $te_gt60 in student-test) occur where the track extends beyond the reference route (e.g. trip 54: $trip54_pct of its fixes). They are excluded from training and scoring.</li>
+<li><b>Candidates</b> (<code>pathsnap/features.py</code>): a KD-tree over points sampled every 8 m along road segments near the track; the 12 nearest directed arcs per fix. Candidate miss rate on reliable fixes: $miss_train (train), $miss_test (student-test).</li>
+</ol>
+<h3>2.2 What patterns did we observe?</h3>
+<table>
+<tr><th>Check</th><th>Train</th><th>Student test</th></tr>
+<tr><td>Observations</td><td class="n">$tr_obs</td><td class="n">$te_obs</td></tr>
+<tr><td>Fixes per trip min / median / max</td><td class="n">$tr_obs_range</td><td class="n">$te_obs_range</td></tr>
+<tr><td>Missing (NaN) rows / invalid coordinates / non-increasing timestamps</td><td class="n">$tr_nan / $tr_badc / $tr_nonmono</td><td class="n">$te_nan / $te_badc / $te_nonmono</td></tr>
+<tr><td>Mean share of 1 s steps</td><td class="n">$tr_dt1</td><td class="n">$te_dt1</td></tr>
+<tr><td>Trips with a gap &gt; 60 s</td><td class="n">$tr_gap60</td><td class="n">$te_gap60</td></tr>
+<tr><td>Nodes / arcs (sum)</td><td class="n">$tr_nodes / $tr_arcs</td><td class="n">$te_nodes / $te_arcs</td></tr>
+<tr><td>Isolated nodes; trips with &gt;1 weak component</td><td class="n">$tr_iso; $tr_multiwcc</td><td class="n">$te_iso; $te_multiwcc</td></tr>
+<tr><td>Consecutive reference arcs that connect</td><td class="n">$tr_routeconn</td><td class="n">$te_routeconn</td></tr>
+<tr><td>Mean per-trip median GPS-to-reference distance</td><td class="n">$tr_labdist m</td><td class="n">$te_labdist m</td></tr>
+</table>
+<p><b>Missing-value analysis.</b> There are no missing values at the field level. The "missing data" in this dataset is <i>temporal</i>: GPS gaps (up to ~42 h in trip 90) and fixes not covered by the reference route. Both are handled explicitly (the HMM gap logic and the reliability filter).</p>
+<p><b>Observed patterns.</b> (i) Every trip carries its own local network, and the trips are worldwide, so ids and absolute coordinates cannot be features. (ii) Two-way roads appear as two arcs with identical geometry, so distance alone cannot decide direction: the nearest-arc rule gets only $nn_top1 Top-1. (iii) Most fixes lie 4–8 m from their road. (iv) The networks are cut-outs with dangling edges and several components, so shortest paths can fail.</p>
+<figure><img src="$fig_eda_hist" style="max-width:85%"><figcaption>Fig. 1. Train: fixes per trip, network size, 1 s sampling share, GPS-to-road distance.</figcaption></figure>
+<figure><img src="$fig_eda_dt" style="max-width:85%"><figcaption>Fig. 2. Train: sampling intervals and GPS-to-reference distance with the 60 m cut.</figcaption></figure>
+<figure><img src="$fig_locations" style="max-width:70%"><figcaption>Fig. 3. Trip centroids (train blue, student-test red).</figcaption></figure>
+<figure><img src="$fig_trip5" style="max-width:52%"><figcaption>Fig. 4. Train trip 5 trajectory and road network (local metres).</figcaption></figure>
+<figure><img src="$fig_map_eda" style="max-width:70%"><figcaption>Fig. 5. Folium map, train trip 5: road network, reference route, raw GPS, with layer control.</figcaption></figure>
+<h3>2.3 Which features did we extract and why?</h3>
+<table>
+<tr><th>Group</th><th>Features</th><th>Reason</th></tr>
+<tr><td>Distance</td><td>dist, dist_rank, dist_minus_min, dist_ratio_min</td><td>Absolute and relative closeness (relative to the fix's other candidates)</td></tr>
+<tr><td>Heading</td><td>heading_cos, heading_sin_abs, heading_valid, ctx_heading_cos, fwd_progress</td><td>Separate the two directions of a road and crossing roads; ignore heading when stopped</td></tr>
+<tr><td>Temporal context</td><td>ctx_mean_near, ctx_max_near, ctx_mean_far, ctx_rank_mean</td><td>Distance of the neighbouring fixes (±1…±15) to the same arc, which rejects parallel roads touched by one noisy fix</td></tr>
+<tr><td>Geometry</td><td>frac, arc_len</td><td>Projections clamped to an arc end usually mean the wrong arc</td></tr>
+<tr><td>Motion</td><td>speed, dt_prev, dt_next</td><td>Reliability of heading; gaps</td></tr>
+<tr><td>Ambiguity</td><td>n_within_30, n_within_60</td><td>Dense junction vs isolated road</td></tr>
+<tr><td>Topology</td><td>out_deg_head, in_deg_tail, has_reverse</td><td>One-way and junction behaviour</td></tr>
+</table>
+<p>$importance_text</p>
+<figure><img src="$fig_importance" style="max-width:60%"><figcaption>Fig. 6. Tuned LightGBM feature importance (gain share).</figcaption></figure>
+
+<h2 class="pb">3. Model Experimentation and Comparison</h2>
+<p><b>Protocol.</b> The task is binary classification of (fix, candidate) rows. Evaluation uses GroupKFold(5) by trip on the 80 training trips. Every model is fitted on the same 30,000-fix sample from the training folds; validation uses the full held-out fold (KNN: a 15,000-fix sample because of its O(train × query) cost). Each model is then refitted on a 30,000-fix sample of all training trips and scored on student-test. Seed 42. <b>Primary metric:</b> observation-level Top-1 accuracy (the argmax candidate is the reference arc), because it is the system's actual decision. Macro F1 uses the argmax decision per row (1 for the fix's argmax candidate, else 0). Log loss is computed on the raw probabilities. Route continuity is the share of consecutive fix pairs whose arcs are the same or reachable on the directed graph within max(300 m, 3 × step + 150 m). Non-learned reference (nearest arc): Top-1 $nn_top1, Macro F1 $nn_f1.</p>
+<h3>3.1 Overall comparison</h3>
+$model_table
+<h3>3.2 Per-model analysis</h3>
+$model_sections
+<h3>3.3 Visualisations</h3>
+<figure><img src="$fig_cv_f1" style="max-width:75%"><figcaption>Fig. 7. CV Macro F1 (mean ± std).</figcaption></figure>
+<figure><img src="$fig_test"><figcaption>Fig. 8. Student-test Top-1 and Macro F1.</figcaption></figure>
+<figure><img src="$fig_ll" style="max-width:75%"><figcaption>Fig. 9. Student-test log loss.</figcaption></figure>
+<figure><img src="$fig_folds"><figcaption>Fig. 10. CV Top-1 per fold.</figcaption></figure>
+<figure><img src="$fig_speed" style="max-width:65%"><figcaption>Fig. 11. Accuracy vs inference time.</figcaption></figure>
+<h3>3.4 Model selection</h3>
+<p>$selection_text</p>
+
+<h2 class="pb">4. Bayesian Hyperparameter Optimisation (LightGBM)</h2>
+<p><b>Q1–Q2. Hyperparameters and ranges:</b></p>
+$bo_space_table
+<p><b>Q3. Objective:</b> maximise mean observation-level Top-1 over GroupKFold(5) on the 80 training trips (40,000 fixes sampled per training fold, full held-out fold for validation). Sampler: Optuna TPE, seed 42, 8 random start-up trials. Student-test was not used during the search.</p>
+<p><b>Q4. Trials:</b> $bo_trials ($bo_minutes min). The full search record is <code>results/bayes_opt/optuna_trials.csv</code>.</p>
+<p><b>Q5. Best values:</b> the "Best found" column above.</p>
+<p><b>Q6. Tuned vs untuned</b> (both refitted on all $n_rows_train training rows, same partitions and metrics):</p>
+$tuned_table
+<p>$tuned_text</p>
+<figure><img src="$fig_optuna" style="max-width:75%"><figcaption>Fig. 12. Optuna optimisation history.</figcaption></figure>
+<figure><img src="$fig_optuna_params" style="max-width:90%"><figcaption>Fig. 13. CV Top-1 against each hyperparameter.</figcaption></figure>
+<figure><img src="$fig_tuned" style="max-width:65%"><figcaption>Fig. 14. Untuned vs tuned.</figcaption></figure>
+<figure><img src="$fig_confusion" style="max-width:40%"><figcaption>Fig. 15. Tuned model confusion matrix (student-test, argmax decision).</figcaption></figure>
+
+<h2 class="pb">5. HMM and Viterbi Route Reconstruction</h2>
+<p><b>Q1. Hidden states:</b> for each fix, its top K = $hmm_k candidate arcs by classifier probability, each with the fix's projected offset along the arc.</p>
+<p><b>Q2. Emissions:</b> log e<sub>t</sub>(a) = w<sub>e</sub> · log p̂(a | t), where p̂ is the classifier probability renormalised over the K candidates; w<sub>e</sub> = $hmm_w.</p>
+<p><b>Q3. Transitions:</b> log A(a→b) = −|d<sub>route</sub> − d<sub>gps</sub>| / β, β = $hmm_beta m × max(1, √Δt) (Newson &amp; Krumm). d<sub>route</sub> = remaining length of a + shortest path from head(a) to tail(b) + offset on b, or the offset difference on the same arc (backward moves &lt;15 m are treated as jitter). Shortest paths come from a bounded Dijkstra (radius max(300 m, 3·d<sub>gps</sub>+150 m)) on the <i>directed</i> graph, cached per source node. Viterbi: δ<sub>t</sub>(b) = e<sub>t</sub>(b) + max<sub>a</sub>[δ<sub>t−1</sub>(a) + log A(a,b)], with back-pointers.</p>
+<p><b>Q4. Missing candidates / large gaps:</b> every fix has at least one candidate (the nearest arcs are taken regardless of distance). If Δt &gt; 60 s or d<sub>gps</sub> &gt; 2 km, the chain is broken: a uniform transition, restarting from the best previous score ($n_breaks breaks on student-test).</p>
+<p><b>Q5. Disconnected segments:</b> an unreachable pair gets a finite penalty log A = −$hmm_jump rather than −∞, so decoding never fails, and the decoded per-fix arcs are stitched into a continuous route by inserting shortest-path arcs where consecutive arcs are not adjacent.</p>
+<p><b>Decoder tuning:</b> a grid over β ∈ {3, 6, 10, 20}, w<sub>e</sub> ∈ {0.5, 1, 2}, K ∈ {3, 4, 6, 8} on $n_tune_trips training trips using <i>out-of-fold</i> probabilities. $grid_text</p>
+$grid_table
+<figure><img src="$fig_grid" style="max-width:55%"><figcaption>Fig. 16. Decoder grid (train OOF).</figcaption></figure>
+<p><b>Q6. Did HMM decoding improve the route?</b></p>
+$hmm_summary_table
+$per_trip_table
+<p>$hmm_text</p>
+<figure><img src="$fig_hmm"><figcaption>Fig. 17. Classifier-only vs classifier + HMM per student-test trip.</figcaption></figure>
+<p><b>All models through the same decoder (student-test):</b></p>
+$decoder_models_table
+<p>$decoder_models_text</p>
+
+<h3>5.x Evaluator hold-out trips (released on review day)</h3>
+$ev_section
+<h2 class="pb">6. Geographical Visualisation (Folium)</h2>
+<p>The maps are generated by <code>scripts/06_plots_and_maps.py</code> (interactive HTML in <code>results/maps/</code>). Layers: road network (grey), raw GPS (blue dots), reference route (thick green), classifier-only (orange, toggle), HMM route (red), and fixes where the HMM arc ≠ reference (black rings, toggle). Each map has a legend and a layer control, and is fitted to the trip's extent.</p>
+<figure><img src="$fig_map_pred"><figcaption>Fig. 18. Student-test trip $map_trip: GPS vs reference vs predicted route.</figcaption></figure>
+
+<h2>7. API, UI and Deployment</h2>
+<p>Laptop 1 runs <code>uvicorn api.main:app --host 0.0.0.0 --port 8000</code> with <code>PATHSNAP_EVAL_DIR</code> pointing at the evaluation trips. Endpoints: <code>GET /trips</code>, <code>POST /predict {trip_id}</code>, <code>GET /health</code>. The API loads the trip <i>without</i> its route, runs features → LightGBM → HMM → stitching, then reads the reference only to compute the metrics server-side. The reference is never returned. Laptop 2 serves <code>ui/index.html</code> (Leaflet), which lists the trips, sends the selected id, and draws the GPS, network and predicted routes with the metrics and timings. Every request is logged on Laptop 1 (REQUEST / RESULT lines).</p>
+<figure><img src="$fig_ui"><figcaption>Fig. 19. Evaluator UI (Laptop 2) on evaluator trip 00000087: predicted route, per-trip scores, classifier-vs-HMM comparison and timing breakdown.</figcaption></figure>
+<figure><img src="$fig_api" style="max-width:90%"><figcaption>Fig. 20. API log on the receiving laptop. [Replace with the screenshot taken on Laptop 1 during the demo.]</figcaption></figure>
+
+<h2>8. Academic Integrity and AI Use</h2>
+<p>All metrics, tables and figures in this report were produced by the code in the repository and can be regenerated with the commands in the README. No evaluator-testing data was used for training, model selection or tuning. AI assistance: Claude (Anthropic) was used to help write code and draft this documentation. The team ran and checked every experiment, and each member can explain the parts of the code they committed.</p>
+</body></html>

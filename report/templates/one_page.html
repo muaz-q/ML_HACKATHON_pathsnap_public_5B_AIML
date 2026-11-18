@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>PathSnap One-Page Report</title>
+<style>
+@page { size: A4; margin: 9mm 10mm; }
+body { font-family: "Segoe UI", system-ui, sans-serif; font-size: 9.3pt; line-height: 1.38; color: #1d2430; margin: 0; }
+h1 { font-size: 15pt; margin: 0; }
+.sub { color: #475569; font-size: 8pt; margin-bottom: 4px; }
+h2 { font-size: 10.5pt; margin: 6px 0 2px; color: #1e3a8a; border-bottom: 1px solid #cbd5e1; }
+p { margin: 2px 0 3px; }
+.cols { column-count: 2; column-gap: 12px; }
+table { border-collapse: collapse; width: 100%; font-size: 8.4pt; margin: 2px 0 4px; break-inside: avoid; }
+th, td { border: 1px solid #cbd5e1; padding: 1px 3px; text-align: left; }
+th { background: #e2e8f0; }
+td.n { text-align: right; }
+.figs { display: flex; gap: 6px; margin-top: 4px; }
+.figs img { width: 50%; height: 235px; object-fit: contain; border: 1px solid #e2e8f0; }
+code { font-family: Consolas, monospace; font-size: 7pt; }
+</style></head><body>
+<h1>PathSnap: Map-Matching &amp; Route Reconstruction</h1>
+<div class="sub">UE24CS352A ML Hackathon · Team 5B AIML · Prakhruti, Meha, Shranaya, Mohammed Muaz Iqubal · <a href="https://github.com/muaz-q/ML_HACKATHON_pathsnap_public_5B_AIML">github.com/muaz-q/ML_HACKATHON_pathsnap_public_5B_AIML</a></div>
+<div class="cols">
+<h2>Problem &amp; approach</h2>
+<p>We match noisy ~1 Hz GPS fixes to the road arc actually driven and output a connected route. For each fix we list its <b>12 nearest directed arcs</b> as candidates. A classifier scores P(candidate = reference arc), and an <b>HMM decoded with Viterbi</b> picks the most likely connected arc sequence.</p>
+<h2>Data &amp; preparation</h2>
+<p>80 train / 10 student-test trips (worldwide; each has its own road network): $tr_obs / $te_obs fixes. There are no missing values, but $tr_gap60 training trips have gaps &gt; 60 s. Coordinates are projected per trip to metres (azimuthal equidistant). The untimed <code>.route</code> is turned into a per-fix label by a monotonic DP alignment. $tr_gt60 training fixes ($tr_gt60_pct) lie &gt; 60 m from their arc (the track runs past the reference) and are excluded. <b>23 location-independent features</b> per (fix, candidate) pair: distance and relative distance, heading agreement, temporal context (neighbouring fixes' distance to the same arc), geometry, motion and topology. Training table: $n_rows_train rows; candidate miss rate $miss_train.</p>
+<h2>Model comparison (GroupKFold-5 by trip)</h2>
+$compact_table
+<p>Nearest-arc baseline: $nn_top1 Top-1. <b>LightGBM was selected</b>: best CV and test Top-1, best log loss (calibrated emissions for the HMM), fast inference.</p>
+<h2>Bayesian optimisation</h2>
+<p>Optuna TPE, $bo_trials trials, objective = mean grouped-CV Top-1 over 8 LightGBM hyperparameters (training trips only). Tuned vs untuned: CV Top-1 $bo_cv_u → $bo_cv_t; student-test Top-1 $bo_te_u → $bo_te_t; log loss $bo_ll_u → $bo_ll_t.</p>
+<h2>HMM / Viterbi</h2>
+<p>States: top-$hmm_k candidates per fix. Emission: renormalised classifier probability. Transition: exp(−|d<sub>route</sub> − d<sub>GPS</sub>|/β), with shortest paths from a bounded Dijkstra on the directed graph. Gaps &gt; 60 s break the chain; unreachable pairs get a finite penalty. β = $hmm_beta, w<sub>e</sub> = $hmm_w, tuned on out-of-fold training probabilities.</p>
+<table><tr><th>Metric</th><th>Student-test clf</th><th>Student-test +HMM</th><th>Evaluator clf</th><th>Evaluator +HMM</th></tr>
+<tr><td>Top-1 accuracy</td><td class="n">$clf_top1_s</td><td class="n"><b>$hmm_top1_s</b></td><td class="n">$ev_clf</td><td class="n"><b>$ev_hmm</b></td></tr>
+<tr><td>Route continuity</td><td class="n">$clf_cont</td><td class="n">$hmm_cont</td><td class="n">–</td><td class="n">$ev_cont</td></tr>
+<tr><td>Route arc F1</td><td class="n">$clf_f1</td><td class="n"><b>$hmm_f1_s</b></td><td class="n">$ev_clf_f1</td><td class="n"><b>$ev_f1</b></td></tr>
+<tr><td>Length error</td><td class="n">$clf_le</td><td class="n">$hmm_le</td><td class="n">–</td><td class="n">$ev_le</td></tr></table>
+<p>Evaluator = the 10 hidden trips released on review day, scored with the frozen system (no retraining).</p>
+<h2>System</h2>
+<p>Laptop 1: FastAPI (<code>/trips</code>, <code>/predict</code>) loads the trip <i>without</i> its route, predicts, then scores server-side; ground truth never reaches the UI. Laptop 2: Leaflet UI showing the GPS, network, classifier-only and HMM routes, metrics and timings (~$avg_s s per trip).</p>
+<h2>Limitations</h2>
+<p>Labels come from an alignment of an untimed reference; arcs are straight segments; the true arc must be in the top-$hmm_k for the HMM to recover it.</p>
+</div>
+<div class="figs"><img src="$fig_test"><img src="$fig_map_pred"></div>
+</body></html>
