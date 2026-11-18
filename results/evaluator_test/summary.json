@@ -1,0 +1,21 @@
+{
+  "n_trips": 10,
+  "n_fixes": 19674,
+  "n_reliable_fixes": 19673,
+  "classifier_top1_pooled": 0.920754333350277,
+  "classifier_top1_mean_over_trips": 0.9374780801046141,
+  "classifier_continuity_mean_over_trips": 0.9907666928016605,
+  "classifier_arc_precision_mean_over_trips": 0.6714886972029083,
+  "classifier_arc_recall_mean_over_trips": 0.993684396192476,
+  "classifier_arc_f1_mean_over_trips": 0.7930721567576986,
+  "classifier_length_error_mean_over_trips": 0.3590738161361217,
+  "hmm_top1_pooled": 0.9531337365933005,
+  "hmm_top1_mean_over_trips": 0.9625680973653846,
+  "hmm_continuity_mean_over_trips": 1.0,
+  "hmm_arc_precision_mean_over_trips": 0.9262246603731551,
+  "hmm_arc_recall_mean_over_trips": 0.9943500711620599,
+  "hmm_arc_f1_mean_over_trips": 0.9557510301911544,
+  "hmm_length_error_mean_over_trips": 0.06640757743600059,
+  "seconds_mean": 1.1460000000000001,
+  "seconds_max": 2.45
+}
