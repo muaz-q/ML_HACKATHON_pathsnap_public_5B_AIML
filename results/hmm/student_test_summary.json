@@ -1,0 +1,15 @@
+{
+  "classifier_top1": 0.9100078390384113,
+  "hmm_top1": 0.9367650901489417,
+  "classifier_continuity": 0.9893242258670929,
+  "hmm_continuity": 0.9998695206079262,
+  "classifier_arc_precision": 0.6487866306070609,
+  "classifier_arc_recall": 0.9935989952927191,
+  "classifier_arc_f1": 0.7752198595191169,
+  "classifier_length_error": 0.38832238710201517,
+  "hmm_arc_precision": 0.8982573666149154,
+  "hmm_arc_recall": 0.9942695532724176,
+  "hmm_arc_f1": 0.9400483373479407,
+  "hmm_length_error": 0.07902071681958205,
+  "classifier_s": 0.19851760999881662
+}

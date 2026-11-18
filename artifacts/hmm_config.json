@@ -1,0 +1,9 @@
+{
+  "k_hmm": 6,
+  "beta": 3.0,
+  "w_emit": 2.0,
+  "jump_penalty": 25.0,
+  "gap_s": 60.0,
+  "gap_m": 2000.0,
+  "back_tol": 15.0
+}
