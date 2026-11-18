@@ -388,6 +388,9 @@ document.addEventListener("keydown", e => {
 });
 // deep link: index.html?api=http://host:8000&trip=00000009
 (async () => { const q = new URLSearchParams(location.search);
+  // opened from the backend itself (http://<laptop-1-ip>:8000/ui/): use that address and connect
+  if (location.protocol.startsWith("http") && location.pathname.startsWith("/ui") && !q.get("api")) {
+    $("api").value = location.origin; await connect(); return; }
   if (q.get("key")) $("key").value = q.get("key");
   if (q.get("api")) { $("api").value = q.get("api"); await connect(); if (q.get("trip") && tripIds.includes(q.get("trip"))) select(q.get("trip")); }
 })();

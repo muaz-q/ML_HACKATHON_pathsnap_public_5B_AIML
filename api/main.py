@@ -69,7 +69,27 @@ async def check_key(request: Request, call_next):
 
 
 # added last so it runs first: CORS headers are also present on 401 replies
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
+                   allow_private_network=True)  # Chrome asks before a page may call a LAN address
+
+
+@app.middleware("http")
+async def private_network(request: Request, call_next):
+    """Chrome's Private/Local Network Access: a page on another machine (or a file:// page)
+    calling this laptop's LAN address sends a preflight with
+    Access-Control-Request-Private-Network; it is blocked unless we answer 'true'."""
+    response = await call_next(request)
+    if request.headers.get("access-control-request-private-network"):
+        response.headers["Access-Control-Allow-Private-Network"] = "true"
+    return response
+
+
+# Backup: the UI is also served by this API at  http://<laptop-1-ip>:8000/ui/
+# (still opened and run in the browser on Laptop 2; same origin, so no browser cross-site checks).
+_UI_DIR = os.path.join(ROOT, "ui")
+if os.path.isdir(_UI_DIR):
+    from fastapi.staticfiles import StaticFiles
+    app.mount("/ui", StaticFiles(directory=_UI_DIR, html=True), name="ui")
 
 
 class PredictRequest(BaseModel):
