@@ -3,7 +3,9 @@ stage produces. Made for live demos / viva.
 
   python scripts/dry_run.py                         # phase 1 (data prep), student-test trip 00000065
   python scripts/dry_run.py --trip 00000009         # another trip
-  python scripts/dry_run.py --full                  # + classifier + HMM + metrics (phase 2)
+  python scripts/dry_run.py --full                  # + classifier + HMM + metrics, then API + UI (phase 2)
+  python scripts/dry_run.py --full --split evaluator_test --trip 00000087   # an evaluator trip
+  python scripts/dry_run.py --full --no-ui          # skip the API/UI step
   python scripts/dry_run.py --fix 250               # inspect a different GPS fix
 """
 import argparse
@@ -40,6 +42,7 @@ def main():
     ap.add_argument("--fix", type=int, default=120, help="GPS fix index to inspect")
     ap.add_argument("--full", action="store_true", help="also run classifier + HMM (phase 2)")
     ap.add_argument("--pause", action="store_true", help="wait for Enter between steps")
+    ap.add_argument("--no-ui", action="store_true", help="with --full: skip starting the API + opening the UI")
     args = ap.parse_args()
     d = os.path.join(ROOT, "data", args.split, args.trip)
     tid = args.trip
@@ -163,6 +166,51 @@ def main():
         print(f"  {name:<17} Top-1 {np.mean(arcs[rel] == labels[rel]):.2%} | continuity "
               f"{route_continuity(arcs, graph, trip.track_xy):.2%} | route arc F1 {sm['arc_f1']:.3f} | "
               f"length error {sm['length_error']:.3f}")
+    if not args.no_ui:
+        pause(args)
+        show_ui(args, os.path.join(ROOT, "data", args.split))
+
+
+def show_ui(args, eval_dir, port=8000):
+    """STEP 9: start the FastAPI backend on this trip's folder and open the evaluator UI on the same trip."""
+    import subprocess
+    import urllib.request
+    import webbrowser
+
+    step(9, "The same trip through the API + UI (what the evaluator sees)")
+    api = f"http://localhost:{port}"
+    proc = None
+    try:
+        urllib.request.urlopen(api + "/health", timeout=1)
+        print(f"  an API is already running on {api}; using it (its trip folder may differ)")
+    except Exception:
+        env = dict(os.environ, PATHSNAP_EVAL_DIR=eval_dir)
+        print(f"  starting: uvicorn api.main:app --port {port}   (PATHSNAP_EVAL_DIR={eval_dir})")
+        proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "api.main:app", "--host", "0.0.0.0",
+                                 "--port", str(port)], cwd=ROOT, env=env)
+        for _ in range(60):
+            try:
+                urllib.request.urlopen(api + "/health", timeout=1)
+                break
+            except Exception:
+                time.sleep(0.5)
+        else:
+            print("  API did not start; run it by hand (see README) and open ui/index.html")
+            proc.terminate()
+            return
+    ui = "file:///" + os.path.join(ROOT, "ui", "index.html").replace(os.sep, "/")
+    url = f"{ui}?api={api}&trip={args.trip}"
+    webbrowser.open(url)
+    print(f"  opened the UI in your browser on trip {args.trip}:\n  {url}")
+    print("  the REQUEST / RESULT lines below are the API log the evaluator wants to see.")
+    if proc is not None:
+        try:
+            input("\n  [press Enter to stop the API and finish]\n")
+        except (KeyboardInterrupt, EOFError):
+            pass
+        proc.terminate()
+        proc.wait(timeout=10)
+        print("  API stopped.")
 
 
 if __name__ == "__main__":
