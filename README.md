@@ -17,8 +17,8 @@ PathSnap takes the noisy GPS fixes of a trip, plus that trip's road network, and
 
 | Stage | Branch | Contents | Status |
 |---|---|---|---|
-| 1 | `stage1-data-eda` | Data loading, projection, route→label alignment, EDA, Folium map | in progress |
-| 2 | `stage2-features-models` | Candidate generation, features, metrics, 10-model comparison | in progress |
+| 1 | `stage1-data-eda` | Data loading, projection, route→label alignment, EDA, Folium map, candidate generation + features (prepared dataset) | in progress |
+| 2 | `stage2-features-models` | Metrics, 10-model comparison | in progress |
 | 3 | `stage3-tuning-hmm` | Bayesian optimisation, HMM/Viterbi decoder, decoder evaluation | in progress |
 | 4 | `stage4-api-ui-viz` | FastAPI backend, evaluator UI, report figures and maps, report | in progress |
 
