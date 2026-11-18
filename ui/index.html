@@ -4,8 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PathSnap Evaluator</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="stylesheet" href="vendor/leaflet.css">
+<script src="vendor/leaflet.js"></script>
+<script>if (!window.L) document.write('<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/script>');</script>
 <style>
 :root {
   --bg: #0a0b0d; --panel: #111317; --panel-2: #16191e; --line: #23272e; --line-2: #2e333b;
@@ -135,6 +136,7 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line-2)
   <div class="brand"><div class="mark"></div>PathSnap <span>/ map-matching evaluator</span></div>
   <div class="apibox">
     <input id="api" spellcheck="false" placeholder="http://laptop-1-ip:8000" aria-label="API URL">
+    <input id="key" type="password" spellcheck="false" placeholder="API key" aria-label="API key" style="width:110px;border-left:1px solid var(--line);padding-left:10px">
     <button class="btn primary" id="connect">Connect</button>
   </div>
   <span class="pill"><span class="dot" id="sdot"></span><span id="status">Not connected</span></span>
@@ -164,6 +166,8 @@ const $ = id => document.getElementById(id);
 const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
                 set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
 $("api").value = store.get("pathsnap_api") || "http://localhost:8000";
+$("key").value = store.get("pathsnap_key") || "";
+const hdrs = (extra = {}) => { const k = $("key").value.trim(); return k ? { ...extra, "X-API-Key": k } : extra; };
 const api = () => $("api").value.trim().replace(/\/+$/, "");
 const pct = x => x == null ? "–" : (100 * x).toFixed(2) + "%";
 const f3 = x => x == null ? "–" : x.toFixed(3);
@@ -245,22 +249,24 @@ $("scrub").oninput = e => { stopPlay(); const d = cache.get(current); if (d) set
 function status(text, kind) { $("status").textContent = text; $("sdot").className = "dot " + (kind || ""); }
 
 async function connect() {
-  store.set("pathsnap_api", $("api").value); status("Connecting", "busy");
+  store.set("pathsnap_api", $("api").value); store.set("pathsnap_key", $("key").value); status("Connecting", "busy");
   cache.clear(); tripIds.length = 0;
   try {
-    const r = await fetch(api() + "/trips"); if (!r.ok) throw new Error("HTTP " + r.status);
+    const r = await fetch(api() + "/trips", { headers: hdrs() });
+    if (r.status === 401) throw new Error("wrong or missing API key");
+    if (!r.ok) throw new Error("HTTP " + r.status);
     const data = await r.json();
     status(`Connected · ${data.trips.length} trips · ${data.eval_dir}`, "ok");
     $("trips").innerHTML = data.trips.map(t => { tripIds.push(t.trip_id);
       return `<button class="trip" data-id="${t.trip_id}"><span class="id">${t.trip_id}</span><span class="n">${t.n_obs.toLocaleString()} fixes</span><span class="score" id="s-${t.trip_id}">–</span></button>`; }).join("");
     $("trips").querySelectorAll(".trip").forEach(b => b.onclick = () => select(b.dataset.id));
     $("runall").disabled = false;
-  } catch (e) { status("Connection failed: " + e.message, "err"); }
+  } catch (e) { status("Connection failed: " + (e.message === "Failed to fetch" ? "cannot reach " + api() + " (same Wi-Fi? firewall? backend running?)" : e.message), "err"); }
 }
 
 async function fetchTrip(id) {
   if (cache.has(id)) return cache.get(id);
-  const r = await fetch(api() + "/predict", { method: "POST", headers: { "Content-Type": "application/json" },
+  const r = await fetch(api() + "/predict", { method: "POST", headers: hdrs({ "Content-Type": "application/json" }),
                                              body: JSON.stringify({ trip_id: id }) });
   if (!r.ok) throw new Error(await r.text());
   const d = await r.json(); d._rtt = 0; cache.set(id, d); markScore(id, d); return d;
@@ -367,6 +373,7 @@ function showSummary() {
 
 $("connect").onclick = connect;
 $("api").addEventListener("keydown", e => { if (e.key === "Enter") connect(); });
+$("key").addEventListener("keydown", e => { if (e.key === "Enter") connect(); });
 $("runall").onclick = runAll;
 $("showsum").onclick = showSummary;
 $("filter").oninput = e => { const q = e.target.value.trim();
@@ -381,6 +388,7 @@ document.addEventListener("keydown", e => {
 });
 // deep link: index.html?api=http://host:8000&trip=00000009
 (async () => { const q = new URLSearchParams(location.search);
+  if (q.get("key")) $("key").value = q.get("key");
   if (q.get("api")) { $("api").value = q.get("api"); await connect(); if (q.get("trip") && tripIds.includes(q.get("trip"))) select(q.get("trip")); }
 })();
 </script>
