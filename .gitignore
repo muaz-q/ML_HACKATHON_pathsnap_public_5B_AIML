@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+data/train/
+data/student_test/
+data/eval/
+data/processed/
+artifacts/oof_fold*.joblib
+artifacts/baseline_models/*_test_pred.pkl
+.venv/
+# >100 MB / heavy comparison baselines - regenerate with scripts/03_train_models.py (seed 42)
+artifacts/baseline_models/ExtraTrees.joblib
+artifacts/baseline_models/RandomForest.joblib
+artifacts/baseline_models/KNN.joblib
+results/bayes_opt.log.tmp
