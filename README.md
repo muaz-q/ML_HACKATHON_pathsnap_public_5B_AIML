@@ -15,14 +15,12 @@ PathSnap takes the noisy GPS fixes of a trip, plus that trip's road network, and
 
 ## Status
 
-| Stage | Branch | Contents | Status |
-|---|---|---|---|
-| 1 | `stage1-data-eda` | Data loading, projection, route→label alignment, EDA, Folium map, candidate generation + features (prepared dataset) | in progress |
-| 2 | `stage2-features-models` | Metrics, 10-model comparison | in progress |
-| 3 | `stage3-tuning-hmm` | Bayesian optimisation, HMM/Viterbi decoder, decoder evaluation | in progress |
-| 4 | `stage4-api-ui-viz` | FastAPI backend, evaluator UI, report figures and maps, report | in progress |
+| Phase | Contents | Status |
+|---|---|---|
+| 1 | Data loading and cleaning, projection, route→label alignment, EDA, candidates + features (prepared dataset) | in progress |
+| 2 | Metrics, model comparison, Bayesian optimisation, HMM/Viterbi, FastAPI + UI, report | in progress |
 
-The work split and the steps for contributing are in [`docs/WORK_SPLIT.md`](docs/WORK_SPLIT.md).
+Each team member has a branch and contributes to every phase. See [`docs/WORK_SPLIT.md`](docs/WORK_SPLIT.md).
 
 ## Layout
 
