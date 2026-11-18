@@ -7,6 +7,11 @@ Environment variables
                       with .track/.nodes/.arcs/.route). Default: data/student_test
   PATHSNAP_MODEL      trained classifier (default artifacts/model.joblib)
   PATHSNAP_HMM        decoder config JSON (default artifacts/hmm_config.json)
+  PATHSNAP_API_KEY    optional shared key. If set, /trips and /predict require the
+                      header  X-API-Key: <key>  (the UI sends it). /health stays open.
+
+Two-laptop setup: run start_backend.bat on Laptop 1; open the UI on Laptop 2 and
+enter http://<laptop-1-ip>:8000 (and the key, if one is set).
 
 The reference .route is read ONLY inside /predict to score the prediction after
 it has been made; it is never passed to the model and never returned to the UI.
@@ -21,7 +26,10 @@ import time
 
 import joblib
 import numpy as np
-from fastapi import FastAPI, HTTPException
+import hmac
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -44,6 +52,23 @@ TRIPS = {os.path.basename(d): d for d in list_trips(EVAL_DIR)}
 log.info("model=%s  eval_dir=%s  trips=%s  hmm=%s", MODEL_PATH, EVAL_DIR, list(TRIPS), HMM_CFG)
 
 app = FastAPI(title="PathSnap map-matching API", version="1.0")
+API_KEY = os.environ.get("PATHSNAP_API_KEY", "").strip()
+log.info("api key %s", "REQUIRED (X-API-Key header)" if API_KEY else "not set (open access)")
+
+
+@app.middleware("http")
+async def check_key(request: Request, call_next):
+    """Reject /trips and /predict without the shared key (only when PATHSNAP_API_KEY is set)."""
+    if API_KEY and request.method != "OPTIONS" and request.url.path in ("/trips", "/predict"):
+        sent = request.headers.get("x-api-key", "")
+        if not hmac.compare_digest(sent, API_KEY):
+            log.warning("REJECTED %s from %s (missing or wrong API key)", request.url.path,
+                        request.client.host if request.client else "?")
+            return JSONResponse({"detail": "missing or wrong API key"}, status_code=401)
+    return await call_next(request)
+
+
+# added last so it runs first: CORS headers are also present on 401 replies
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
@@ -92,7 +117,7 @@ def _network(trip, limit=8000):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "trips": len(TRIPS), "model": os.path.basename(MODEL_PATH)}
+    return {"status": "ok", "trips": len(TRIPS), "model": os.path.basename(MODEL_PATH), "key_required": bool(API_KEY)}
 
 
 @app.get("/trips")
@@ -106,11 +131,11 @@ def trips():
 
 
 @app.post("/predict")
-def predict(req: PredictRequest):
+def predict(req: PredictRequest, request: Request):
     if req.trip_id not in TRIPS:
         raise HTTPException(404, f"unknown trip {req.trip_id}")
     t0 = time.perf_counter()
-    log.info("REQUEST /predict trip=%s", req.trip_id)
+    log.info("REQUEST /predict trip=%s from %s", req.trip_id, request.client.host if request.client else "?")
     trip = load_trip(TRIPS[req.trip_id], with_route=False)  # prediction never sees the reference
     pred = predict_trip(trip, MODEL, HMM_CFG)
     t_pred = time.perf_counter() - t0
